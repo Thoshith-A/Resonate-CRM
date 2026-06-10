@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderSource {
+  ORGANIC
+  CAMPAIGN
+}
+
+enum Channel {
+  WHATSAPP
+  SMS
+  EMAIL
+  RCS
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  COMPLETED
+  FAILED
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  DELIVERED
+  READ
+  CLICKED
+}
+
+model Customer {
+  id         String  @id @default(cuid())
+  externalId String? @unique
+  name       String
+  email      String
+  phone      String
+  city       String
+  tags       String[]
+  /// All money fields are integer paise (1 INR = 100 paise) — never floats.
+  totalSpend    Int       @default(0)
+  orderCount    Int       @default(0)
+  /// Integer paise, derived: totalSpend / orderCount (rounded).
+  avgOrderValue Int       @default(0)
+  firstOrderAt  DateTime?
+  lastOrderAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  orders         Order[]
+  communications CommunicationLog[]
+
+  @@index([lastOrderAt])
+  @@index([totalSpend])
+  @@index([city])
+}
+
+model Order {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  /// Integer paise.
+  amount   Int
+  currency String      @default("INR")
+  items    Json
+  placedAt DateTime
+  source   OrderSource
+  /// Set when the order is attributed to a campaign send (revenue attribution).
+  attributedCampaignId      String?
+  attributedCommunicationId String?
+
+  @@index([customerId])
+  @@index([placedAt])
+  @@index([attributedCampaignId])
+}
+
+model Segment {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  /// Serialized rule tree evaluated against Customer fields to build the audience.
+  rules            Json
+  createdByAi      Boolean  @default(false)
+  lastPreviewCount Int?
+  createdAt        DateTime @default(now())
+
+  campaigns Campaign[]
+}
+
+model Campaign {
+  id        String  @id @default(cuid())
+  name      String
+  objective String?
+  segmentId String
+  segment   Segment @relation(fields: [segmentId], references: [id])
+  channel   Channel
+  /// Template with placeholders; per-recipient rendering lands in CommunicationLog.renderedMessage.
+  messageTemplate String
+  variantMeta     Json?
+  status          CampaignStatus @default(DRAFT)
+  audienceSize    Int            @default(0)
+  createdAt       DateTime       @default(now())
+  sentAt          DateTime?
+
+  communications CommunicationLog[]
+}
+
+model CommunicationLog {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  channel    Channel
+  /// Final per-recipient message after template personalization.
+  renderedMessage String
+  /// Vendor-side id; unique so receipt webhooks can resolve exactly one log row.
+  vendorMessageId String?       @unique
+  status          MessageStatus @default(QUEUED)
+  failureReason   String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  clickedAt       DateTime?
+  updatedAt       DateTime      @updatedAt
+
+  @@index([campaignId, status])
+  @@index([customerId])
+}
+
+/// Append-only idempotency ledger for delivery-receipt webhooks. Each
+/// (vendorMessageId, eventType) pair is recorded at most once, so vendor
+/// replays/retries become no-ops instead of double-applying status updates.
+model ReceiptEvent {
+  id              String   @id @default(cuid())
+  vendorMessageId String
+  eventType       String
+  occurredAt      DateTime
+  payload         Json
+  processedAt     DateTime @default(now())
+
+  @@unique([vendorMessageId, eventType])
+}
