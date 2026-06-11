@@ -58,6 +58,7 @@ export function Hero() {
   const [skipVisible, setSkipVisible] = useState(false);
   const [introDone, setIntroDone] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  const [replayNonce, setReplayNonce] = useState(0);
 
   const skipFnRef = useRef<(() => void) | null>(null);
   const audioRef = useRef<IntroAudioEngine | null>(null);
@@ -144,6 +145,26 @@ export function Hero() {
     }
     void enableSound();
   }, [enableSound]);
+
+  // Arm sound and replay the film from the top so picture and score are
+  // perfectly synced — the reliable way to actually hear the intro.
+  const replayWithSound = useCallback(async () => {
+    if (!audioRef.current) {
+      audioRef.current = new IntroAudioEngine();
+    }
+    audioRef.current.rewind();
+    await audioRef.current.enable();
+    setSoundOn(true);
+    try {
+      window.localStorage.setItem(SOUND_PREF_KEY, "on");
+    } catch {
+      // ignore
+    }
+    setSceneReady(false);
+    setSkipVisible(false);
+    setIntroDone(false);
+    setReplayNonce((n) => n + 1);
+  }, []);
 
   // Dispose the audio graph when the hero unmounts.
   useEffect(() => {
@@ -251,6 +272,7 @@ export function Hero() {
           >
             {tier !== null ? (
               <ResonanceScene
+                key={`cinematic-${replayNonce}`}
                 mode="cinematic"
                 bridge={bridge}
                 tier={tier}
@@ -421,6 +443,17 @@ export function Hero() {
               <VolumeX className="size-3.5" aria-hidden />
             )}
             {soundOn ? "Sound on" : "Sound"}
+          </button>
+        ) : null}
+        {cinematic && introDone ? (
+          <button
+            type="button"
+            onClick={() => void replayWithSound()}
+            aria-label="Replay the intro with sound"
+            className="absolute bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-copper/30 bg-black/40 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.28em] text-foreground/75 backdrop-blur transition-colors hover:border-copper/60 hover:text-foreground"
+          >
+            <Volume2 className="size-3.5 text-copper" aria-hidden />
+            Replay with sound
           </button>
         ) : null}
       </section>

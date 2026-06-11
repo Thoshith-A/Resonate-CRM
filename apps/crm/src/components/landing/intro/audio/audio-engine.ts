@@ -18,8 +18,8 @@ export type IntroBeat =
   | "genesis"
   | "handoff";
 
-const MASTER_LEVEL = 0.62;
-const BED_LEVEL = 0.13;
+const MASTER_LEVEL = 0.82;
+const BED_LEVEL = 0.17;
 const REVERB_SECONDS = 2.8;
 
 /** Minimal AudioContext constructor type (covers the webkit-prefixed path). */
@@ -128,6 +128,32 @@ export class IntroAudioEngine {
       void this.ctx.close();
     }
     this.ctx = null;
+  }
+
+  /** Reset the continuous voices to their opening state for a replay. */
+  rewind(): void {
+    const ctx = this.ctx;
+    if (!ctx) {
+      return;
+    }
+    const now = ctx.currentTime;
+    if (this.bed) {
+      this.bed.gain.cancelScheduledValues(now);
+      this.bed.gain.setValueAtTime(BED_LEVEL * 0.7, now);
+    }
+    if (this.bedFilter) {
+      this.bedFilter.frequency.cancelScheduledValues(now);
+      this.bedFilter.frequency.setValueAtTime(200, now);
+    }
+    if (this.padEnv) {
+      this.padEnv.gain.cancelScheduledValues(now);
+      this.padEnv.gain.setValueAtTime(0.0001, now);
+    }
+    if (this.shimmer) {
+      this.shimmer.gain.cancelScheduledValues(now);
+      this.shimmer.gain.setValueAtTime(0, now);
+    }
+    this.bendBed(now, 0, 0.01);
   }
 
   /** Trigger the voice(s) for a timeline beat. No-op while muted. */
