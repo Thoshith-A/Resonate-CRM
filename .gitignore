@@ -21,3 +21,4 @@ dead-letter.log
 .vercel
 coverage/
 .commitmsg.tmp
+.shots/

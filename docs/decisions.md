@@ -2,6 +2,14 @@
 
 A running log, one entry per consequential decision. Finalized in Phase 7 with the "at scale" section.
 
+## Phase 5 — Insights
+
+### Stats are live DB aggregates, not stored counters
+Every number on the dashboard and campaign detail is a `groupBy`/`aggregate` over CommunicationLog/Order at request time, so the UI reconciles exactly with the raw tables (verified: API funnel counts === raw `groupBy`). The funnel is derived from `statusCounts` using the forward-only invariant (a READ row was also delivered & sent), so `sent ⊇ delivered ⊇ read ⊇ clicked` always holds. Tradeoff: per-request aggregation is fine at this scale; at 10M rows these become materialized rollups / a read model updated off the receipt stream.
+
+### Live feed is 3s polling, not websockets
+The campaign detail page polls `GET /api/campaigns/[id]` and `/feed` every 3s. Polling is intentionally simple and robust for a single-tenant demo and reconnects trivially; at scale this is an SSE/websocket stream fed by the receipt consumer. The per-campaign table rates/revenue are two grouped aggregates for the whole table (not N+1).
+
 ## Phase 4 — Send loop (the core)
 
 ### Synchronous batched send (assumption: audiences ≤ ~10k)

@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { fail } from "@/server/api";
-import { getCampaignInsights } from "@/server/campaigns/getCampaignInsights";
+import { getCampaignFeed } from "@/server/campaigns/getCampaignFeed";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const { id } = await context.params;
-    const insights = await getCampaignInsights(id);
-    return NextResponse.json(insights);
+    const limitParam = Number.parseInt(new URL(request.url).searchParams.get("limit") ?? "40", 10);
+    const feed = await getCampaignFeed(id, Number.isFinite(limitParam) ? limitParam : 40);
+    return NextResponse.json({ feed });
   } catch (error) {
     return fail(error);
   }
