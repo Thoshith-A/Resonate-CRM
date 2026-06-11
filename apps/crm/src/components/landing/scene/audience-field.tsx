@@ -4,6 +4,8 @@ import { useEffect, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
+import type { ScalarRef } from "../intro/contract";
+
 const COUNT = 7200;
 const COLS = 120;
 const ROWS = 60;
@@ -25,6 +27,7 @@ function mulberry32(seed: number): () => number {
 const VERTEX_HEAD = /* glsl */ `
 #include <common>
 uniform float uTime;
+uniform float uReveal;
 attribute float aSeed;
 varying float vGlow;
 `;
@@ -34,6 +37,11 @@ varying float vGlow;
  * concentric ring-pulses expanding from the origin (one crest every 4s,
  * travelling at 5.5 u/s). Instances lift and pass an HDR glow factor to
  * the fragment stage as a ring crosses them, then settle back.
+ *
+ * The intro's reveal rides on uReveal: instances start shrunken below the
+ * floor and rise/grow in a near-to-far wave. The 2.1 multiplier guarantees
+ * uReveal = 1 clamps to 1 for every instance (max penalty ~1.03), so lift
+ * is exactly 0 and the math is byte-for-byte today's.
  */
 const VERTEX_BODY = /* glsl */ `
 #include <begin_vertex>
@@ -48,6 +56,10 @@ float falloff = 1.0 / (1.0 + dist * 0.14);
 float pulse = ring * falloff;
 vGlow = pulse * (0.65 + 0.7 * aSeed) * 3.0;
 transformed.y += swell * 0.16 + pulse * 0.85;
+float lift = 1.0 - clamp(uReveal * 2.1 - aSeed * 0.35 - dist * 0.012, 0.0, 1.0);
+transformed.xyz *= 1.0 - lift;
+transformed.y -= lift * 2.2;
+vGlow *= 1.0 - lift;
 `;
 
 const FRAGMENT_HEAD = /* glsl */ `
@@ -61,10 +73,11 @@ const FRAGMENT_BODY = /* glsl */ `
 totalEmissiveRadiance += uCopper * vGlow;
 `;
 
-export function AudienceField() {
+export function AudienceField({ reveal }: { reveal?: ScalarRef }) {
   const { mesh, geometry, material, uniforms } = useMemo(() => {
     const fieldUniforms = {
       uTime: { value: 0 },
+      uReveal: { value: 1 },
       uCopper: { value: new THREE.Color("#e09a52") },
     };
 
@@ -76,6 +89,7 @@ export function AudienceField() {
     });
     fieldMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = fieldUniforms.uTime;
+      shader.uniforms.uReveal = fieldUniforms.uReveal;
       shader.uniforms.uCopper = fieldUniforms.uCopper;
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", VERTEX_HEAD)
@@ -133,6 +147,9 @@ export function AudienceField() {
 
   useFrame((state) => {
     uniforms.uTime.value = state.clock.elapsedTime;
+    if (reveal) {
+      uniforms.uReveal.value = reveal.value;
+    }
   });
 
   return <primitive object={mesh} position={[0, -0.1, 0]} />;

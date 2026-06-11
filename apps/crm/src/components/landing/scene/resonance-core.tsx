@@ -1,9 +1,11 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MeshTransmissionMaterial } from "@react-three/drei";
 import * as THREE from "three";
+
+import type { RevealState } from "../intro/contract";
 
 const CORE_HEIGHT = 2.3;
 
@@ -19,12 +21,77 @@ const RINGS: readonly RingSpec[] = [
   { radius: 1.72, tube: 0.012, tilt: [0.9, -0.6, 1.1] },
 ];
 
-export function ResonanceCore() {
+const RING_VERTEX_HEAD = /* glsl */ `
+#include <common>
+varying vec2 vSgRingPos;
+`;
+
+const RING_VERTEX_BODY = /* glsl */ `
+#include <begin_vertex>
+vSgRingPos = position.xy;
+`;
+
+const RING_FRAGMENT_HEAD = /* glsl */ `
+#include <common>
+uniform float uProgress;
+varying vec2 vSgRingPos;
+`;
+
+/**
+ * Arc reveal: the torus' main angle lives in its local XY plane, so any
+ * fragment beyond uProgress * 2pi is discarded. At uProgress = 1 the
+ * normalized angle is always below 2pi — nothing is ever discarded.
+ */
+const RING_FRAGMENT_BODY = /* glsl */ `
+#include <clipping_planes_fragment>
+float sgAngle = atan(vSgRingPos.y, vSgRingPos.x);
+if (sgAngle < 0.0) sgAngle += 6.2831853;
+if (sgAngle > uProgress * 6.2831853) discard;
+`;
+
+export function ResonanceCore({ reveal }: { reveal?: RevealState }) {
   const groupRef = useRef<THREE.Group>(null);
   const coreRef = useRef<THREE.Mesh>(null);
   const ringARef = useRef<THREE.Mesh>(null);
   const ringBRef = useRef<THREE.Mesh>(null);
   const ringCRef = useRef<THREE.Mesh>(null);
+
+  // Ring materials are built imperatively so the intro can patch an
+  // arc-reveal uniform in via onBeforeCompile; without `reveal` the
+  // materials are exactly the historical ones (no patch, no uniform).
+  const revealed = Boolean(reveal);
+  const { ringMaterials, ringUniforms } = useMemo(() => {
+    const uniformList = RINGS.map(() => ({ value: 1 }));
+    const materialList = RINGS.map((_, index) => {
+      const material = new THREE.MeshStandardMaterial({
+        color: "#d6cdc0",
+        metalness: 1,
+        roughness: 0.24,
+        envMapIntensity: 1.3,
+      });
+      if (revealed) {
+        material.onBeforeCompile = (shader) => {
+          shader.uniforms.uProgress = uniformList[index];
+          shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", RING_VERTEX_HEAD)
+            .replace("#include <begin_vertex>", RING_VERTEX_BODY);
+          shader.fragmentShader = shader.fragmentShader
+            .replace("#include <common>", RING_FRAGMENT_HEAD)
+            .replace("#include <clipping_planes_fragment>", RING_FRAGMENT_BODY);
+        };
+      }
+      return material;
+    });
+    return { ringMaterials: materialList, ringUniforms: uniformList };
+  }, [revealed]);
+
+  useEffect(() => {
+    return () => {
+      for (const material of ringMaterials) {
+        material.dispose();
+      }
+    };
+  }, [ringMaterials]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -32,6 +99,16 @@ export function ResonanceCore() {
     if (group) {
       group.position.y = CORE_HEIGHT + Math.sin(t * 0.5) * 0.06;
       group.rotation.y = t * 0.04;
+      if (reveal) {
+        const scale = reveal.coreScale.value;
+        group.scale.setScalar(scale);
+        group.visible = scale > 0.001;
+      }
+    }
+    if (reveal) {
+      for (let i = 0; i < ringUniforms.length; i += 1) {
+        ringUniforms[i].value = reveal.ringProgress[i].value;
+      }
     }
     const core = coreRef.current;
     if (core) {
@@ -89,14 +166,8 @@ export function ResonanceCore() {
 
       {RINGS.map((ring, index) => (
         <group key={ring.radius} rotation={ring.tilt}>
-          <mesh ref={ringRefs[index]}>
+          <mesh ref={ringRefs[index]} material={ringMaterials[index]}>
             <torusGeometry args={[ring.radius, ring.tube, 16, 96]} />
-            <meshStandardMaterial
-              color="#d6cdc0"
-              metalness={1}
-              roughness={0.24}
-              envMapIntensity={1.3}
-            />
           </mesh>
         </group>
       ))}
