@@ -20,3 +20,4 @@ dead-letter.log
 .DS_Store
 .vercel
 coverage/
+.commitmsg.tmp
