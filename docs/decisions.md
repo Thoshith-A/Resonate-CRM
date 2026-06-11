@@ -10,8 +10,8 @@ SPEC §2 locks the AI to Anthropic (primary) / OpenAI (fallback) via the Vercel 
 ### AI output is bounded for the model, then re-validated by the canonical schema
 The schema handed to `generateObject` is a *non-recursive, depth-3* shape with a flat condition object — this converts cleanly to the JSON-schema subset Gemini accepts (recursive `$ref` schemas do not). The model's output is then parsed by the canonical `SegmentRulesSchema` — the single validator — which enforces the strict per-field comparator/value rules. So the AI literally cannot emit a field the compiler doesn't know; a bad shape triggers one retry with the validation error appended, then a graceful `rules: null` + helpful message. A missing provider key is the only AI condition that surfaces as an error (503), not a fallback.
 
-### Known: the provided Gemini key is billing-blocked
-The key authenticates (lists models) but every `generateContent` returns `429 — prepayment credits depleted`, project-wide. The request reaches the billing check *after* schema validation (a 429, not a 400), confirming the request/schema are well-formed — the happy path will work as soon as a funded key is configured. The fail-safe path is fully verified: blocked calls return a helpful message with no crash.
+### Gemini billing (resolved) + happy path verified
+The Gemini key was initially billing-blocked (`429 — prepayment credits depleted`); once funding was enabled, all five SPEC verification prompts pass end to end. "high spenders in Mumbai or Delhi who haven't ordered in 90 days" → `total_spend > ₹5,000 AND city in [Mumbai, Delhi] AND last_order_days_ago > 90` (929 customers), with rupees→paise conversion, multi-city `in`, and correct date direction. "customers who love jazz" returns `rules: null` with a helpful message listing real attributes. The fail-safe path (no key / model error) degrades to a calm message, never a crash.
 
 ## Phase 2 — Segment engine
 

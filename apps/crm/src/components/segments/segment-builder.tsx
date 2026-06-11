@@ -249,6 +249,12 @@ export function SegmentBuilder({
   );
 }
 
+const EXAMPLE_PROMPTS = [
+  "high spenders in Mumbai or Delhi who haven't ordered in 90 days",
+  "subscribers who have never placed an order",
+  "wholesale customers who signed up in the last 30 days",
+];
+
 function AiPromptBox({ onApply }: { onApply: (result: AiSegmentResult) => void }) {
   const [prompt, setPrompt] = useState("");
   const [state, setState] = useState<
@@ -258,8 +264,8 @@ function AiPromptBox({ onApply }: { onApply: (result: AiSegmentResult) => void }
     | { status: "done"; result: AiSegmentResult }
   >({ status: "idle" });
 
-  const submit = async () => {
-    const trimmed = prompt.trim();
+  const submit = async (text?: string) => {
+    const trimmed = (text ?? prompt).trim();
     if (!trimmed || state.status === "loading") {
       return;
     }
@@ -305,6 +311,26 @@ function AiPromptBox({ onApply }: { onApply: (result: AiSegmentResult) => void }
           {state.status === "loading" ? "Thinking…" : "Generate"}
         </Button>
       </div>
+
+      {state.status === "idle" && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Try:</span>
+          {EXAMPLE_PROMPTS.map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => {
+                setPrompt(example);
+                void submit(example);
+              }}
+              className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-copper/50 hover:text-foreground"
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      )}
+
       {state.status === "error" && (
         <p className="mt-2 text-sm text-destructive">{state.message}</p>
       )}
