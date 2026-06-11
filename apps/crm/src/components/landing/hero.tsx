@@ -4,11 +4,11 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
-import { Volume2, VolumeX } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Wordmark } from "./wordmark";
-import { PLAY_MODE, SESSION_KEY, SOUND_PREF_KEY } from "./intro/constants";
+import { PLAY_MODE, SESSION_KEY } from "./intro/constants";
 import { IntroAudioEngine } from "./intro/audio/audio-engine";
 import type { IntroBridge } from "./intro/IntroExperience";
 import { detectTier } from "./intro/tier";
@@ -57,7 +57,6 @@ export function Hero() {
   const [revealFallback, setRevealFallback] = useState(false);
   const [skipVisible, setSkipVisible] = useState(false);
   const [introDone, setIntroDone] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
   const [replayNonce, setReplayNonce] = useState(0);
 
   const skipFnRef = useRef<(() => void) | null>(null);
@@ -119,47 +118,23 @@ export function Hero() {
     }
   }, []);
 
+  // Sound is always on — there is no mute. The browser still requires one
+  // user gesture before audio may play, so we arm it on the first interaction
+  // (see the auto-arm effect below) and never expose an off switch.
   const enableSound = useCallback(async () => {
     if (!audioRef.current) {
       audioRef.current = new IntroAudioEngine();
     }
     await audioRef.current.enable();
-    setSoundOn(true);
-    try {
-      window.localStorage.setItem(SOUND_PREF_KEY, "on");
-    } catch {
-      // Preference is a convenience; ignore storage failures.
-    }
   }, []);
 
-  const toggleSound = useCallback(() => {
-    if (audioRef.current?.isEnabled) {
-      audioRef.current.disable();
-      setSoundOn(false);
-      try {
-        window.localStorage.setItem(SOUND_PREF_KEY, "off");
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    void enableSound();
-  }, [enableSound]);
-
-  // Arm sound and replay the film from the top so picture and score are
-  // perfectly synced — the reliable way to actually hear the intro.
+  // Replay the film from the top with sound (it is always on).
   const replayWithSound = useCallback(async () => {
     if (!audioRef.current) {
       audioRef.current = new IntroAudioEngine();
     }
     audioRef.current.rewind();
     await audioRef.current.enable();
-    setSoundOn(true);
-    try {
-      window.localStorage.setItem(SOUND_PREF_KEY, "on");
-    } catch {
-      // ignore
-    }
     setSceneReady(false);
     setSkipVisible(false);
     setIntroDone(false);
@@ -187,33 +162,30 @@ export function Hero() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
-  // Returning listeners who opted in: resume on their first gesture (the
-  // browser's autoplay policy still requires one — we never force audio).
+  // Sound is always on. Browsers block audio until a user gesture, so we arm
+  // it on the first interaction of any kind and keep it on thereafter.
   useEffect(() => {
-    if (!cinematic || introDone) {
+    if (!cinematic) {
       return;
     }
-    let pref: string | null = null;
-    try {
-      pref = window.localStorage.getItem(SOUND_PREF_KEY);
-    } catch {
-      pref = null;
+    const arm = () => {
+      void enableSound();
+    };
+    const events: (keyof WindowEventMap)[] = [
+      "pointerdown",
+      "keydown",
+      "touchstart",
+      "wheel",
+    ];
+    for (const event of events) {
+      window.addEventListener(event, arm, { once: true, passive: true });
     }
-    if (pref !== "on") {
-      return;
-    }
-    const onFirstGesture = () => {
-      if (!audioRef.current?.isEnabled) {
-        void enableSound();
+    return () => {
+      for (const event of events) {
+        window.removeEventListener(event, arm);
       }
     };
-    window.addEventListener("pointerdown", onFirstGesture, { once: true });
-    window.addEventListener("keydown", onFirstGesture, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", onFirstGesture);
-      window.removeEventListener("keydown", onFirstGesture);
-    };
-  }, [cinematic, introDone, enableSound]);
+  }, [cinematic, enableSound]);
 
   // Scroll lock for the duration of the film.
   useEffect(() => {
@@ -429,31 +401,15 @@ export function Hero() {
             Skip ⏎
           </button>
         ) : null}
-        {cinematic && !introDone ? (
-          <button
-            type="button"
-            onClick={toggleSound}
-            aria-pressed={soundOn}
-            aria-label={soundOn ? "Mute sound" : "Play with sound"}
-            className="absolute bottom-6 left-6 z-50 flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.28em] text-foreground/70 backdrop-blur transition-opacity duration-500 hover:text-foreground"
-          >
-            {soundOn ? (
-              <Volume2 className="size-3.5 text-copper" aria-hidden />
-            ) : (
-              <VolumeX className="size-3.5" aria-hidden />
-            )}
-            {soundOn ? "Sound on" : "Sound"}
-          </button>
-        ) : null}
         {cinematic && introDone ? (
           <button
             type="button"
             onClick={() => void replayWithSound()}
-            aria-label="Replay the intro with sound"
+            aria-label="Replay the intro"
             className="absolute bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-copper/30 bg-black/40 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.28em] text-foreground/75 backdrop-blur transition-colors hover:border-copper/60 hover:text-foreground"
           >
-            <Volume2 className="size-3.5 text-copper" aria-hidden />
-            Replay with sound
+            <RotateCcw className="size-3.5 text-copper" aria-hidden />
+            Replay
           </button>
         ) : null}
       </section>
