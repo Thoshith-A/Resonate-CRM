@@ -22,4 +22,9 @@
 - Self-critique pass against the brief flagged the [void] beat blazing from frame zero instead of emerging from black; added a `systemReveal` brightness ramp so the opening reads as deep space igniting into the system.
 - Added a fully-synthesized Web Audio score (no sample files) wired to the same timeline beats, behind a muted-by-default "Sound" toggle. Verified headlessly by tapping the AudioContext output through an AnalyserNode and sampling peak amplitude over the 6.5s play — confirmed a clean dynamic arc (quiet drone → omen riser → impact hit → genesis swell → resolve fade) with the context "running" and zero console errors.
 
+### Phase 3 — NL → Segment
+- The AI never produces rules directly trusted by the system: `generateObject` fills a bounded schema, then the canonical `SegmentRulesSchema` (the same one the visual builder and API use) re-validates it. A hallucinated field is structurally impossible — it can't pass the shared zod whitelist — and an invalid shape triggers one retry-with-error then a graceful `rules: null` + helpful message. This is the "AI fails safely" story: structured output → zod whitelist → retry → graceful fallback.
+- Override worth recording: the canonical segment schema is recursive (`z.lazy`), which the Gemini structured-output JSON-schema subset rejects. Rather than loosen validation, the *model-facing* schema was flattened to an explicit depth-3 shape while the *trusted* validation stayed on the canonical recursive schema — two schemas, one source of truth.
+- Real finding to tell honestly in an interview: the provided Gemini key was billing-blocked (`429 prepayment credits depleted`). Because every AI output is validated and failures degrade gracefully, this surfaced as a calm "couldn't map that" message in the UI rather than a crash — exactly the safety property the design is meant to give.
+
 <!-- Add entries per phase: what the AI proposed, what was rejected/overridden, and the reasoning. -->

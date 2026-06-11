@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Users } from "lucide-react";
+import { Plus, Sparkles, Trash2, Users } from "lucide-react";
 import {
   COMPARATOR_LABELS,
   MAX_SEGMENT_DEPTH,
@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { formatNumber, formatRupees } from "@/lib/format";
 import { describeRules } from "@/lib/segment-describe";
 import type { SegmentPreview } from "@/server/segments/previewSegment";
+import type { AiSegmentResult } from "@/server/ai/segmentFromText";
 
 const CITY_SUGGESTIONS = [
   "Mumbai", "Delhi", "Bangalore", "Pune", "Hyderabad",
@@ -128,6 +129,7 @@ export function SegmentBuilder({
   });
   const [name, setName] = useState(initialName ?? "");
   const [description, setDescription] = useState("");
+  const [createdByAi, setCreatedByAi] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -151,6 +153,23 @@ export function SegmentBuilder({
     setRoot((prev) => removeFrom(prev, id));
   }, []);
 
+  // AI assist: populate the (editable) builder from a generated rule tree.
+  const applyAi = useCallback((result: AiSegmentResult) => {
+    if (!result.rules) {
+      return;
+    }
+    const node = fromRules(result.rules);
+    setRoot(
+      node.kind === "group"
+        ? node
+        : { id: newId(), kind: "group", op: "AND", children: [node] },
+    );
+    setCreatedByAi(true);
+    if (result.suggestedName) {
+      setName((prev) => prev || result.suggestedName);
+    }
+  }, []);
+
   const handleSave = async () => {
     if (!parsed.success || !name.trim()) {
       return;
@@ -161,7 +180,12 @@ export function SegmentBuilder({
       const res = await fetch("/api/segments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() || undefined, rules }),
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          rules,
+          createdByAi,
+        }),
       });
       if (!res.ok) {
         throw new Error(`Save failed (${res.status})`);
@@ -178,6 +202,8 @@ export function SegmentBuilder({
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <div className="flex flex-col gap-5">
+        <AiPromptBox onApply={applyAi} />
+
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             value={name}
@@ -219,6 +245,80 @@ export function SegmentBuilder({
         saveError={saveError}
         onSave={handleSave}
       />
+    </div>
+  );
+}
+
+function AiPromptBox({ onApply }: { onApply: (result: AiSegmentResult) => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [state, setState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "error"; message: string }
+    | { status: "done"; result: AiSegmentResult }
+  >({ status: "idle" });
+
+  const submit = async () => {
+    const trimmed = prompt.trim();
+    if (!trimmed || state.status === "loading") {
+      return;
+    }
+    setState({ status: "loading" });
+    try {
+      const res = await fetch("/api/ai/segment-from-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: trimmed }),
+      });
+      if (!res.ok) {
+        throw new Error(`AI request failed (${res.status})`);
+      }
+      const result = (await res.json()) as AiSegmentResult;
+      setState({ status: "done", result });
+      onApply(result);
+    } catch (error) {
+      setState({
+        status: "error",
+        message: error instanceof Error ? error.message : "AI request failed.",
+      });
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-copper/30 bg-copper/5 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-copper">
+        <Sparkles className="size-4" /> Describe your audience
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              void submit();
+            }
+          }}
+          placeholder="high spenders in Mumbai or Delhi who haven't ordered in 90 days"
+          aria-label="Describe the audience in plain English"
+        />
+        <Button onClick={() => void submit()} disabled={state.status === "loading" || !prompt.trim()}>
+          {state.status === "loading" ? "Thinking…" : "Generate"}
+        </Button>
+      </div>
+      {state.status === "error" && (
+        <p className="mt-2 text-sm text-destructive">{state.message}</p>
+      )}
+      {state.status === "done" && (
+        <p
+          className={cn(
+            "mt-2 text-sm",
+            state.result.rules ? "text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {state.result.rules ? "Applied below — edit anything. " : ""}
+          {state.result.explanation}
+        </p>
+      )}
     </div>
   );
 }

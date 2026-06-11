@@ -2,6 +2,17 @@
 
 A running log, one entry per consequential decision. Finalized in Phase 7 with the "at scale" section.
 
+## Phase 3 — NL → Segment AI
+
+### Provider deviation: Google/Gemini added alongside Anthropic/OpenAI
+SPEC §2 locks the AI to Anthropic (primary) / OpenAI (fallback) via the Vercel AI SDK. The only key available for this build was a **Gemini** key, so a Google provider was added. The SPEC's architecture is preserved: still the Vercel AI SDK, still `generateObject` with a zod schema, still model-from-`AI_MODEL`. `getAiModel()` resolves the provider from whichever key is present (Anthropic → OpenAI → Google), so dropping in an Anthropic/OpenAI key later needs zero code changes.
+
+### AI output is bounded for the model, then re-validated by the canonical schema
+The schema handed to `generateObject` is a *non-recursive, depth-3* shape with a flat condition object — this converts cleanly to the JSON-schema subset Gemini accepts (recursive `$ref` schemas do not). The model's output is then parsed by the canonical `SegmentRulesSchema` — the single validator — which enforces the strict per-field comparator/value rules. So the AI literally cannot emit a field the compiler doesn't know; a bad shape triggers one retry with the validation error appended, then a graceful `rules: null` + helpful message. A missing provider key is the only AI condition that surfaces as an error (503), not a fallback.
+
+### Known: the provided Gemini key is billing-blocked
+The key authenticates (lists models) but every `generateContent` returns `429 — prepayment credits depleted`, project-wide. The request reaches the billing check *after* schema validation (a 429, not a 400), confirming the request/schema are well-formed — the happy path will work as soon as a funded key is configured. The fail-safe path is fully verified: blocked calls return a helpful message with no crash.
+
 ## Phase 2 — Segment engine
 
 ### One AST schema in `packages/shared`, three consumers

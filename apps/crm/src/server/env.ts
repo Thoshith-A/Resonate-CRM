@@ -14,6 +14,7 @@ const EnvSchema = z.object({
   AI_MODEL: z.string().min(1).default("claude-sonnet-4-6"),
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
