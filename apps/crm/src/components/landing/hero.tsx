@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
-import { RotateCcw } from "lucide-react";
+import { Play, RotateCcw } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Wordmark } from "./wordmark";
@@ -57,6 +57,7 @@ export function Hero() {
   const [revealFallback, setRevealFallback] = useState(false);
   const [skipVisible, setSkipVisible] = useState(false);
   const [introDone, setIntroDone] = useState(false);
+  const [started, setStarted] = useState(false);
   const [replayNonce, setReplayNonce] = useState(0);
 
   const skipFnRef = useRef<(() => void) | null>(null);
@@ -118,15 +119,22 @@ export function Hero() {
     }
   }, []);
 
-  // Sound is always on — there is no mute. The browser still requires one
-  // user gesture before audio may play, so we arm it on the first interaction
-  // (see the auto-arm effect below) and never expose an off switch.
+  // Sound is always on — there is no mute. The browser requires one user
+  // gesture before audio may play, so the film does not start until the
+  // listener presses "Begin"; that same gesture arms the score.
   const enableSound = useCallback(async () => {
     if (!audioRef.current) {
       audioRef.current = new IntroAudioEngine();
     }
     await audioRef.current.enable();
   }, []);
+
+  // The single entry point: arm sound, then start the film (picture + score
+  // begin together, from frame one).
+  const begin = useCallback(async () => {
+    await enableSound();
+    setStarted(true);
+  }, [enableSound]);
 
   // Replay the film from the top with sound (it is always on).
   const replayWithSound = useCallback(async () => {
@@ -161,31 +169,6 @@ export function Hero() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
-
-  // Sound is always on. Browsers block audio until a user gesture, so we arm
-  // it on the first interaction of any kind and keep it on thereafter.
-  useEffect(() => {
-    if (!cinematic) {
-      return;
-    }
-    const arm = () => {
-      void enableSound();
-    };
-    const events: (keyof WindowEventMap)[] = [
-      "pointerdown",
-      "keydown",
-      "touchstart",
-      "wheel",
-    ];
-    for (const event of events) {
-      window.addEventListener(event, arm, { once: true, passive: true });
-    }
-    return () => {
-      for (const event of events) {
-        window.removeEventListener(event, arm);
-      }
-    };
-  }, [cinematic, enableSound]);
 
   // Scroll lock for the duration of the film.
   useEffect(() => {
@@ -233,7 +216,7 @@ export function Hero() {
         {/* Static poster — always present beneath the canvas, never a blank frame. */}
         <div aria-hidden className="poster-glow absolute inset-0" />
 
-        {mountCanvas ? (
+        {mountCanvas && (!cinematic || started) ? (
           <div
             aria-hidden
             className={cn(
@@ -378,8 +361,30 @@ export function Hero() {
           <span className="scroll-cue-line block h-10 w-px bg-gradient-to-b from-copper/80 to-transparent" />
         </div>
 
+        {/* Entry gate: the film + score begin together on this one gesture. */}
+        {cinematic && !started ? (
+          <button
+            type="button"
+            onClick={() => void begin()}
+            aria-label="Begin the intro with sound"
+            className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-5 bg-[#050403]/35"
+          >
+            <span className="font-mono text-[11px] uppercase tracking-[0.34em] text-copper">
+              AI campaign copilot for D2C brands
+            </span>
+            <span className="enter-pulse flex size-20 items-center justify-center rounded-full border border-copper/40 text-copper">
+              <Play className="size-7 translate-x-0.5 fill-current" aria-hidden />
+            </span>
+            <span className="font-display text-3xl tracking-tight text-foreground/90">
+              Begin
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-foreground/45">
+              Click anywhere · best with sound
+            </span>
+          </button>
+        ) : null}
         {/* Cinematic-only chrome: first-frame cover, impact flash, skip. */}
-        {cinematic && !sceneReady ? (
+        {cinematic && started && !sceneReady ? (
           <div aria-hidden className="absolute inset-0 z-40 bg-[#050403]" />
         ) : null}
         {cinematic ? (

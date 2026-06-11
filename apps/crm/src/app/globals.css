@@ -173,3 +173,26 @@
     animation: none;
   }
 }
+
+/* ── Landing: "Begin" entry pulse ── */
+@keyframes enter-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 oklch(0.78 0.13 65 / 0.35);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 14px oklch(0.78 0.13 65 / 0);
+  }
+}
+
+.enter-pulse {
+  animation: enter-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter-pulse {
+    animation: none;
+  }
+}
