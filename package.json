@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter @resonate/crm --filter @resonate/channel-sim dev",
+    "dev": "concurrently -n crm,sim,warm -c blue,magenta,green \"pnpm --filter @resonate/crm dev\" \"pnpm --filter @resonate/channel-sim dev\" \"node scripts/warm-dev.mjs\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@faker-js/faker": "^9.5.0",
+    "concurrently": "^10.0.3",
     "prisma": "^6.16.0",
     "tsx": "^4.20.0"
   }
