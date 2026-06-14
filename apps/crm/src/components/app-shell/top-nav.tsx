@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Wordmark } from "@/components/landing/wordmark";
+import { ResetDemoButton } from "@/components/app-shell/reset-demo-button";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -42,6 +43,7 @@ export function TopNav() {
             })}
           </nav>
         </div>
+        <ResetDemoButton />
       </div>
     </header>
   );

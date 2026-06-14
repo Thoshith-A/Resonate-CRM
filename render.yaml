@@ -1,0 +1,22 @@
+# Render Blueprint for the channel simulator (apps/channel-sim).
+# Build/start run from the REPO ROOT so pnpm resolves the workspace dep
+# (@resonate/shared). Render injects PORT; the rest are set below / in the dashboard.
+services:
+  - type: web
+    name: resonate-channel-sim
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @resonate/channel-sim build
+    startCommand: pnpm --filter @resonate/channel-sim start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: CRM_URL
+        sync: false # set to the Vercel URL after the CRM deploys
+      - key: WEBHOOK_SECRET
+        sync: false # MUST match the CRM's WEBHOOK_SECRET
+      - key: SIM_SPEED
+        value: "4"
+      - key: CONVERSION_RATE
+        value: "0.08"

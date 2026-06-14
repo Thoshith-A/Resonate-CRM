@@ -1,6 +1,32 @@
 # Decisions & tradeoffs
 
-A running log, one entry per consequential decision. Finalized in Phase 7 with the "at scale" section.
+A running log, one entry per consequential decision. The headline tradeoffs are summarized at the end under **At scale (consolidated)**.
+
+## Phase 7 — Hardening & deploy
+
+### Audiences are snapshotted at send time, not dynamic
+`POST /campaigns/:id/send` re-evaluates the segment and freezes the matching customers into `CommunicationLog` rows. Consequences: (1) stats and the funnel are **reproducible** — they describe exactly who was contacted, not who matches the rule today; (2) **attribution is simple** — an order links to a specific communication. The cost: editing a segment after a send doesn't retro-change that campaign. **At scale**, dynamic segments are a recompute/materialization job; counts become async estimates. This is the single most-defensible product decision in the build and is intentional.
+
+### Single tenant, no auth
+One workspace, no login (SPEC non-goal). The honest tradeoff: multi-tenancy is a `tenantId` on every table + row-level scoping on every query + per-tenant rate limits and secret isolation — cross-cutting, so it's deliberately out of scope rather than half-built. The admin reset is the one privileged action and is guarded by `ADMIN_KEY`.
+
+### Reset & reseed shares ONE deterministic generator
+The demo "Reset" button (`POST /api/admin/reset`, `x-admin-key` guarded) and the CLI `pnpm db:seed` both call `reseedDatabase()` in `apps/crm/src/server/admin/reseed.ts` — same seed, same rows every run, so the demo state is reproducible to the row. The generator takes the Prisma client as a parameter (dependency injection) so it runs both under `tsx` (CLI) and inside the Next runtime (endpoint) with no app-only imports. Tradeoff: regenerating ~8k customers + ~29k orders is a bulk job (`maxDuration=60`); at real volume seeding moves offline.
+
+### At scale (consolidated)
+The interview question — *"10M customers, 1M-message campaigns: what breaks first?"* — and the answers, all detailed in the per-phase entries below:
+
+| Concern | Today (demo) | At scale |
+|---|---|---|
+| Segment counts | one indexed `WHERE` over denormalized aggregates | async estimate jobs; materialized rollups |
+| Audience selection | snapshot into CommunicationLog | snapshot still, but written by workers |
+| Send | synchronous batched (≤~10k, `maxDuration=60`) | **outbox + worker queue**, rate-limited, per-batch idempotency |
+| Receipt ingestion | one idempotent txn, bulk `UPDATE…FROM(VALUES)` | webhook → queue → **batched consumer partitioned by `campaignId`** |
+| Aggregates | maintained in the order-ingest txn | async refresh / CDC off the order stream |
+| Insights | live `groupBy` per request | materialized read model updated off the receipt stream |
+| Live feed | 3s polling | SSE / websocket fed by the consumer |
+| Simulator | in-memory timers + buffer | durable queue (this is a simulator, not the product) |
+| Tenancy | single workspace | `tenantId` + row-level scoping + per-tenant limits |
 
 ## Phase 6 — Attribution + AI
 
