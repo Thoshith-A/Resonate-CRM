@@ -15,6 +15,8 @@ const EnvSchema = z.object({
   CRM_URL: z.url().default("http://localhost:3000"),
   WEBHOOK_SECRET: z.string().min(8),
   SIM_SPEED: z.coerce.number().positive().default(1),
+  /** Share of CLICKED messages that place an attributed order (SPEC §7). */
+  CONVERSION_RATE: z.coerce.number().min(0).max(1).default(0.08),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
@@ -32,6 +34,7 @@ export const config = Object.freeze({
   crmUrl: parsed.data.CRM_URL,
   webhookSecret: parsed.data.WEBHOOK_SECRET,
   simSpeed: parsed.data.SIM_SPEED,
+  conversionRate: parsed.data.CONVERSION_RATE,
 });
 
 export function printConfig(logger: Logger): void {
@@ -40,5 +43,6 @@ export function printConfig(logger: Logger): void {
     crmUrl: config.crmUrl,
     webhookSecret: `${config.webhookSecret.slice(0, 4)}…`,
     simSpeed: config.simSpeed,
+    conversionRate: config.conversionRate,
   });
 }

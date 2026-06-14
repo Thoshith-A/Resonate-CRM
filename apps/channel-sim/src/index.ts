@@ -103,13 +103,14 @@ app.post("/v1/messages", (req: Request, res: Response) => {
     }
 
     const vendorMessageId = randomUUID();
-    putMessage(vendorMessageId, {
+    const record = {
       channel: message.channel,
       clientRef: message.clientRef,
       customerId: message.customerId,
       campaignId: message.campaignId,
-    });
-    scheduleLifecycle(vendorMessageId, message.channel);
+    };
+    putMessage(vendorMessageId, record);
+    scheduleLifecycle(vendorMessageId, record);
     return { clientRef: message.clientRef, vendorMessageId, status: "accepted" };
   });
 

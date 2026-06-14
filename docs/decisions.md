@@ -2,6 +2,20 @@
 
 A running log, one entry per consequential decision. Finalized in Phase 7 with the "at scale" section.
 
+## Phase 6 — Attribution + AI
+
+### Conversion comes back through the CRM's own front door
+A fraction of CLICKED messages (`CONVERSION_RATE`, default 8% per SPEC §7) place an order 10–60s later. The sim does NOT write the DB — it `POST`s to the **public `/api/orders`** with `source: "CAMPAIGN"` + `attributedCampaignId` + `attributedCommunicationId` (the CommunicationLog id). So conversions exercise the exact ingestion path real integrations use: aggregate maintenance and attribution stay in one transaction, and "attributed revenue" is just `SUM(amount) WHERE attributedCampaignId = …` (verified: dashboard + insights revenue reconcile to the paise with the raw `Order` sum). Tradeoff: real attribution windows/multi-touch are out of scope; this is last-click within the campaign.
+
+### Conversions can legitimately outrun their own click receipt
+The conversion order POSTs immediately, but the CLICKED receipt folds through the rate-limited (50 events / 3s), shuffled, retrying webhook pipeline. So a conversion can land before its comm shows `CLICKED` — the attribution link is correct (same campaign, same comm) and the status is **eventually consistent**. `verify-phase6.ts` asserts the hard invariant (every attributed order links to a comm in the same campaign) and reports CLICKED-fold progress separately rather than racing it.
+
+### AI summarises REAL computed stats, never client numbers
+`POST /api/ai/campaign-summary` takes only a `campaignId`; the server recomputes `getCampaignInsights` and feeds those numbers to the model, so the narrative can't drift from the DB. Same safety shape as NL→segment: `generateObject` + zod, one retry with the error appended, then a deterministic numbers-only fallback so the card always renders (`degraded: true` when the model is unavailable).
+
+### Drafted messages can't reference a merge field the renderer won't fill
+`POST /api/ai/draft-messages` validates every variant against the SAME `MERGE_FIELDS` whitelist the renderer uses (and enforces the SMS ≤160 limit), retrying once on violation. A hallucinated `{{token}}` is rejected before it can reach a customer as literal braces — the structural-safety story from segments, applied to copy. The builder's live preview renders against a REAL segment customer via the tested `renderForCustomer`, so what the marketer previews is exactly what sends.
+
 ## Phase 5 — Insights
 
 ### Stats are live DB aggregates, not stored counters

@@ -8,7 +8,31 @@
  * shouldn't silently vanish text).
  */
 
+/**
+ * The only merge fields the renderer fills. The AI drafter validates its
+ * output against this same list, so a drafted message can never reference a
+ * field the renderer wouldn't substitute (it would ship as literal braces).
+ */
+export const MERGE_FIELDS = [
+  "first_name",
+  "city",
+  "last_order_days_ago",
+  "total_spend_rupees",
+] as const;
+export type MergeField = (typeof MERGE_FIELDS)[number];
+
 const MERGE_RE = /\{\{\s*([a-z_]+)\s*\}\}/g;
+
+/** Extract the distinct merge-field names referenced in a template. */
+export function mergeFieldsUsed(template: string): string[] {
+  const found = new Set<string>();
+  for (const match of template.matchAll(MERGE_RE)) {
+    if (match[1]) {
+      found.add(match[1]);
+    }
+  }
+  return [...found];
+}
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(MERGE_RE, (match, key: string) =>

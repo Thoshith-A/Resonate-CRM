@@ -1,0 +1,142 @@
+import { generateObject, type LanguageModel } from "ai";
+import { z } from "zod";
+import { ChannelSchema, type Channel } from "@resonate/shared";
+import { MERGE_FIELDS, mergeFieldsUsed } from "../campaigns/template";
+import { getAiModel } from "./provider";
+
+export type MessageVariant = { label: string; text: string };
+export type DraftMessagesResult = { variants: MessageVariant[]; degraded: boolean };
+
+export const DraftMessagesInputSchema = z.object({
+  objective: z.string().min(1).max(300),
+  audienceDescription: z.string().min(1).max(500),
+  channel: ChannelSchema,
+  brandVoice: z.string().max(120).optional(),
+});
+export type DraftMessagesInput = z.infer<typeof DraftMessagesInputSchema>;
+
+const DEFAULT_VOICE = "warm, premium, concise";
+const SMS_LIMIT = 160;
+
+const VariantSchema = z.object({
+  label: z.string().min(1).max(40),
+  text: z.string().min(1).max(1000),
+});
+const AiOutputSchema = z.object({ variants: z.array(VariantSchema).length(3) });
+
+const mergeFieldList = MERGE_FIELDS.map((f) => `{{${f}}}`).join(", ");
+
+function systemPrompt(channel: Channel, voice: string): string {
+  const channelNote =
+    channel === "SMS"
+      ? `This is an SMS — every variant MUST be ≤ ${SMS_LIMIT} characters including merge fields. No links unless essential.`
+      : channel === "WHATSAPP" || channel === "RCS"
+        ? "This is a WhatsApp/RCS message — conversational, one or two short lines, an emoji is fine."
+        : "This is an email body — a warm opening line and a clear call to action; keep it tight.";
+
+  return `You are a senior copywriter for Brewline, an Indian specialty-coffee D2C brand (beans, equipment, subscriptions). Write campaign messages in a ${voice} voice.
+
+Produce a JSON object: { "variants": [ { "label": string, "text": string } x3 ] } — exactly three distinct variants with short labels (e.g. "Direct", "Warm", "Playful").
+
+${channelNote}
+
+Personalisation: you MAY use ONLY these merge fields, written exactly with double braces: ${mergeFieldList}. ${MERGE_FIELDS.map((f) => `${f} = ${describeField(f)}`).join("; ")}. NEVER invent a merge field — any other {{token}} is forbidden and will be rejected.
+
+Rules: write in English with rupee amounts where relevant; never promise discounts beyond the stated objective; no placeholder/lorem text; each variant should take a genuinely different angle.`;
+}
+
+function describeField(field: string): string {
+  switch (field) {
+    case "first_name":
+      return "the customer's first name";
+    case "city":
+      return "their city";
+    case "last_order_days_ago":
+      return "days since their last order (a number, or 'a while')";
+    case "total_spend_rupees":
+      return "their lifetime spend in rupees, comma-formatted";
+    default:
+      return field;
+  }
+}
+
+/** Reject variants that use unknown merge fields or break the SMS limit. */
+function validateVariants(variants: MessageVariant[], channel: Channel): void {
+  const allowed = new Set<string>(MERGE_FIELDS);
+  for (const variant of variants) {
+    const unknown = mergeFieldsUsed(variant.text).filter((f) => !allowed.has(f));
+    if (unknown.length > 0) {
+      throw new Error(`Variant "${variant.label}" uses unknown merge fields: ${unknown.join(", ")}`);
+    }
+    if (channel === "SMS" && variant.text.length > SMS_LIMIT) {
+      throw new Error(
+        `Variant "${variant.label}" is ${variant.text.length} chars; SMS limit is ${SMS_LIMIT}`,
+      );
+    }
+  }
+}
+
+async function attempt(
+  model: LanguageModel,
+  input: DraftMessagesInput,
+  voice: string,
+  extra: string,
+): Promise<MessageVariant[]> {
+  const { object } = await generateObject({
+    model,
+    schema: AiOutputSchema,
+    system: systemPrompt(input.channel, voice),
+    prompt: `Audience: ${input.audienceDescription}\nObjective: ${input.objective}${extra}`,
+  });
+  validateVariants(object.variants, input.channel);
+  return object.variants;
+}
+
+/** A safe, editable starting point when the model is unavailable. */
+function fallbackVariants(input: DraftMessagesInput): MessageVariant[] {
+  const objective = input.objective.trim().replace(/\.$/, "");
+  const raw: MessageVariant[] = [
+    { label: "Direct", text: `Hi {{first_name}}, ${objective}. — Brewline ☕` },
+    {
+      label: "Warm",
+      text: `Hi {{first_name}}, we've missed you in {{city}}. ${objective} — your next cup is on us. ☕`,
+    },
+    { label: "Short", text: `{{first_name}}, ${objective}. ☕ Brewline` },
+  ];
+  if (input.channel === "SMS") {
+    return raw.map((v) => ({ ...v, text: v.text.slice(0, SMS_LIMIT) }));
+  }
+  return raw;
+}
+
+/**
+ * Draft 3 channel-appropriate message variants. One attempt, then one retry
+ * with the validation error appended, then a graceful fallback (a safe
+ * starting template) so the marketer is never left with an empty editor.
+ * Merge fields are whitelisted, so a drafted message can never reference a
+ * field the renderer wouldn't fill.
+ */
+export async function draftMessages(input: DraftMessagesInput): Promise<DraftMessagesResult> {
+  const model = getAiModel();
+  const voice = input.brandVoice?.trim() || DEFAULT_VOICE;
+  try {
+    return { variants: await attempt(model, input, voice, ""), degraded: false };
+  } catch (firstError) {
+    const reason = firstError instanceof Error ? firstError.message : String(firstError);
+    try {
+      const variants = await attempt(
+        model,
+        input,
+        voice,
+        `\n\nYour previous attempt was rejected (${reason}). Use ONLY the allowed merge fields and respect the channel length limit.`,
+      );
+      return { variants, degraded: false };
+    } catch (secondError) {
+      console.error(
+        "[ai] draft-messages failed:",
+        secondError instanceof Error ? secondError.message : secondError,
+      );
+      return { variants: fallbackVariants(input), degraded: true };
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Sparkles } from "lucide-react";
+import { ArrowRight, Plus, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,6 +112,12 @@ export function SegmentsList() {
                     {formatDate(segment.createdAt)}
                   </span>
                 </div>
+                <Link
+                  href={`/campaigns/new?segment=${segment.id}`}
+                  className="inline-flex w-fit items-center gap-1.5 text-sm text-copper transition-colors hover:text-copper/80"
+                >
+                  Use in campaign <ArrowRight className="size-3.5" />
+                </Link>
               </CardContent>
             </Card>
           ))}

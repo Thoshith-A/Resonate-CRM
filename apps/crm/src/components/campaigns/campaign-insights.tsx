@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatRupees } from "@/lib/format";
 import type { CampaignInsights as CampaignInsightsData } from "@/server/campaigns/getCampaignInsights";
+import { CampaignSummary } from "./campaign-summary";
 import { DeliveryFeed } from "./delivery-feed";
 import { statusBadgeVariant, statusLabel } from "./status";
 
@@ -127,6 +128,8 @@ function Loaded({ data }: { data: CampaignInsightsData }) {
         <FunnelCard data={data} />
         <FailureCard data={data} />
       </div>
+
+      <CampaignSummary campaignId={data.id} />
 
       <Card>
         <CardHeader>

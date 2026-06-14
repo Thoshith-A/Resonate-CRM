@@ -1,13 +1,19 @@
-import type { Channel, ReceiptEventType } from "@resonate/shared";
+import type { ReceiptEventType } from "@resonate/shared";
 import { config } from "./config";
+import { recordConversion } from "./conversions";
 import { getFunnel, type DelayRange } from "./funnels";
 import { enqueueReceipt } from "./receipts";
+import type { MessageRecord } from "./store";
 
 /**
  * Rolls a message through its channel funnel and schedules the resulting
  * receipt events on jittered timers (SPEC §7). Every delay is divided by
  * config.simSpeed, so SIM_SPEED=4 plays the whole funnel out ~4x faster.
  */
+
+/** Conversion lands 10–60s after the click (SPEC §7), scaled by sim speed. */
+const CONVERSION_MIN_MS = 10_000;
+const CONVERSION_MAX_MS = 60_000;
 
 function jitter(range: DelayRange): number {
   const raw = range.minMs + Math.random() * (range.maxMs - range.minMs);
@@ -42,8 +48,8 @@ function scheduleEvent(
   }, delayMs);
 }
 
-export function scheduleLifecycle(vendorMessageId: string, channel: Channel): void {
-  const funnel = getFunnel(channel);
+export function scheduleLifecycle(vendorMessageId: string, record: MessageRecord): void {
+  const funnel = getFunnel(record.channel);
   const deliveryDelay = jitter(funnel.deliveryDelay);
 
   // 1. Delivered vs failed.
@@ -71,6 +77,19 @@ export function scheduleLifecycle(vendorMessageId: string, channel: Channel): vo
 
   // 3. Clicked, off whichever base step applies.
   if (Math.random() < funnel.clickedRate) {
-    scheduleEvent(vendorMessageId, "clicked", clickBaseDelay + jitter(funnel.clickDelay));
+    const clickDelay = clickBaseDelay + jitter(funnel.clickDelay);
+    scheduleEvent(vendorMessageId, "clicked", clickDelay);
+
+    // 4. Conversion loop: a fraction of clickers place an attributed order
+    //    10–60s later (SPEC §7), powering the campaign's attributed revenue.
+    if (Math.random() < config.conversionRate) {
+      const convDelay =
+        clickDelay +
+        (CONVERSION_MIN_MS + Math.random() * (CONVERSION_MAX_MS - CONVERSION_MIN_MS)) /
+          config.simSpeed;
+      setTimeout(() => {
+        void recordConversion(record);
+      }, convDelay);
+    }
   }
 }
