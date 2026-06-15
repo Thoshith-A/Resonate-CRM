@@ -1,12 +1,16 @@
 import { z } from "zod";
 import type { Logger } from "./logger";
 
-try {
-  process.loadEnvFile();
-} catch (err) {
-  // A missing .env is fine (e.g. in production); anything else is a real error.
-  if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-    throw err;
+// Load a local .env for dev. `process.loadEnvFile` only exists on Node >= 20.12,
+// and on serverless there's no .env — guard both so neither crashes module load.
+if (typeof process.loadEnvFile === "function") {
+  try {
+    process.loadEnvFile();
+  } catch (err) {
+    // A missing .env is fine (e.g. in production); anything else is a real error.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
   }
 }
 
@@ -25,8 +29,12 @@ if (!parsed.success) {
   const problems = parsed.error.issues
     .map((issue) => `  - ${issue.path.join(".") || "(env)"}: ${issue.message}`)
     .join("\n");
-  console.error(`channel-sim: invalid environment configuration\n${problems}`);
-  process.exit(1);
+  const message = `channel-sim: invalid environment configuration\n${problems}`;
+  // Throw rather than process.exit(1): on a serverless function a bare exit
+  // surfaces only as FUNCTION_INVOCATION_FAILED with no detail, whereas a
+  // thrown error is written to the function logs so the missing var is obvious.
+  console.error(message);
+  throw new Error(message);
 }
 
 export const config = Object.freeze({

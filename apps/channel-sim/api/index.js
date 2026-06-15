@@ -243,11 +243,13 @@ import express from "express";
 
 // src/config.ts
 import { z as z8 } from "zod";
-try {
-  process.loadEnvFile();
-} catch (err) {
-  if (err.code !== "ENOENT") {
-    throw err;
+if (typeof process.loadEnvFile === "function") {
+  try {
+    process.loadEnvFile();
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      throw err;
+    }
   }
 }
 var EnvSchema = z8.object({
@@ -261,9 +263,10 @@ var EnvSchema = z8.object({
 var parsed = EnvSchema.safeParse(process.env);
 if (!parsed.success) {
   const problems = parsed.error.issues.map((issue) => `  - ${issue.path.join(".") || "(env)"}: ${issue.message}`).join("\n");
-  console.error(`channel-sim: invalid environment configuration
-${problems}`);
-  process.exit(1);
+  const message = `channel-sim: invalid environment configuration
+${problems}`;
+  console.error(message);
+  throw new Error(message);
 }
 var config = Object.freeze({
   port: parsed.data.PORT,
