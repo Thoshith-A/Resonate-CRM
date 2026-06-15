@@ -7,8 +7,18 @@ import { getAiModel } from "./provider";
 export type MessageVariant = { label: string; text: string };
 export type DraftMessagesResult = { variants: MessageVariant[]; degraded: boolean };
 
+// A campaign objective is optional in the builder (the campaign record allows
+// null too), so drafting must work without one rather than 422-ing on an empty
+// field. When it's blank, fall back to a generic re-engagement intent that
+// still reads naturally in the fallback templates and guides the model well.
+const DEFAULT_OBJECTIVE = "come back and enjoy something special at Brewline";
+
 export const DraftMessagesInputSchema = z.object({
-  objective: z.string().min(1).max(300),
+  objective: z
+    .string()
+    .max(300)
+    .optional()
+    .transform((value) => (value && value.trim().length > 0 ? value.trim() : DEFAULT_OBJECTIVE)),
   audienceDescription: z.string().min(1).max(500),
   channel: ChannelSchema,
   brandVoice: z.string().max(120).optional(),
