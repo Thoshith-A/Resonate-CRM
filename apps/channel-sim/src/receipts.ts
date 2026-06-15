@@ -103,6 +103,24 @@ async function deliverBatch(batch: ReceiptBatch): Promise<void> {
   });
 }
 
+/**
+ * Delivers an ad-hoc set of events as one signed batch (shuffled, retried,
+ * dead-lettered on terminal failure) — the same guarantees as the periodic
+ * flusher. Used by the serverless simulator, which owns its receipts per
+ * request instead of draining the shared buffer. No-op on an empty set.
+ */
+export async function deliverReceipts(events: ReceiptEventPayload[]): Promise<void> {
+  if (events.length === 0) {
+    return;
+  }
+  shuffle(events);
+  const batch = ReceiptBatchSchema.parse({
+    sentAt: new Date().toISOString(),
+    events,
+  });
+  await deliverBatch(batch);
+}
+
 function flushTick(): void {
   if (buffer.length === 0) {
     return;
