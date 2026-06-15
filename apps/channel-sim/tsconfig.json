@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    // "DOM" provides the Fetch API types (Response/fetch). Without it, @types/node's
+    // global `Response` collapses to `{}` (it's `globalThis extends { onmessage } ? {} : undici.Response`)
+    // whenever DOM/WebWorker globals leak into the program — which broke `res.status` in the deploy build.
+    "lib": ["ES2022", "DOM"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
