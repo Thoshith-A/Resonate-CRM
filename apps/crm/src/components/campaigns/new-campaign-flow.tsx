@@ -19,6 +19,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { ObjectivePicker } from "@/components/campaigns/objective-picker";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { describeRules } from "@/lib/segment-describe";
@@ -534,11 +535,10 @@ function MessageStep({
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="objective">Objective</Label>
-          <Input
+          <ObjectivePicker
             id="objective"
             value={objective}
-            onChange={(e) => onObjectiveChange(e.target.value)}
-            placeholder="win them back with 15% off"
+            onChange={onObjectiveChange}
           />
         </div>
 
