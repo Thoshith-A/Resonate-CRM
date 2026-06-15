@@ -5,6 +5,7 @@
       "maxDuration": 60
     }
   },
+  "redirects": [{ "source": "/", "destination": "/index.html", "permanent": false }],
   "rewrites": [
     { "source": "/health", "destination": "/api" },
     { "source": "/v1/(.*)", "destination": "/api" }
