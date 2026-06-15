@@ -12,6 +12,8 @@ const CreateBodySchema = z.object({
   objective: z.string().max(500).optional(),
   segmentId: z.string().min(1),
   channel: ChannelSchema,
+  channelStrategy: z.enum(["SINGLE", "AI_ROUTED"]).optional(),
+  sendStrategy: z.enum(["INSTANT", "SMART_WINDOWS"]).optional(),
   messageTemplate: z.string().min(1).max(2000),
   variantMeta: z.unknown().optional(),
 });

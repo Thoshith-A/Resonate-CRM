@@ -1,4 +1,4 @@
-import type { ReceiptEventType } from "@resonate/shared";
+import { PEAK_WINDOW_READ_BOOST, type ReceiptEventType } from "@resonate/shared";
 import { config } from "./config";
 import { recordConversion } from "./conversions";
 import { getFunnel, type DelayRange } from "./funnels";
@@ -65,7 +65,12 @@ export function scheduleLifecycle(vendorMessageId: string, record: MessageRecord
   //    delivery instead).
   let clickBaseDelay = deliveryDelay;
   if (funnel.readRate !== null && funnel.readDelay !== null) {
-    if (Math.random() < funnel.readRate) {
+    // Send-Time Intelligence: a message landing in the customer's peak window
+    // reads at a boosted rate — this is the open-rate lift the analytics report.
+    const readRate = record.peakWindow
+      ? Math.min(0.96, funnel.readRate * PEAK_WINDOW_READ_BOOST)
+      : funnel.readRate;
+    if (Math.random() < readRate) {
       const readDelay = deliveryDelay + jitter(funnel.readDelay);
       scheduleEvent(vendorMessageId, "read", readDelay);
       clickBaseDelay = readDelay;

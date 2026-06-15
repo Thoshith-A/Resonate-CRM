@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,9 +10,16 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatRupees } from "@/lib/format";
-import type { CampaignInsights as CampaignInsightsData } from "@/server/campaigns/getCampaignInsights";
+import type {
+  CampaignInsights as CampaignInsightsData,
+  RoutingSummary,
+} from "@/server/campaigns/getCampaignInsights";
+import { buildParticles, STATUS_HEX } from "@/lib/delivery-particles";
+import { CHANNEL_HEX } from "./ChannelSelector";
 import { CampaignSummary } from "./campaign-summary";
+import { SendTimeSection } from "./send-time-section";
 import { DeliveryFeed } from "./delivery-feed";
+import { DeliveryUniverse } from "./DeliveryUniverse";
 import { statusBadgeVariant, statusLabel } from "./status";
 
 type FetchState =
@@ -23,6 +30,28 @@ type FetchState =
 const POLL_MS = 3000;
 
 const formatPct = (value: number): string => `${value.toFixed(1)}%`;
+
+/** Neutral near-white for the "Delivered" milestone (default), distinct from the
+ * green "Delivered, not read" status. */
+const DELIVERED_WHITE = "#e5e7eb";
+
+/**
+ * A stable signature of every stat the AI summary depends on. The summary card
+ * re-summarises only when this changes, so identical polls cost nothing.
+ */
+const funnelSignature = (data: CampaignInsightsData): string => {
+  const f = data.funnel;
+  return [
+    data.status,
+    f.sent,
+    f.delivered,
+    f.read,
+    f.clicked,
+    f.failed,
+    data.attributedRevenue,
+    data.attributedOrders,
+  ].join("|");
+};
 
 export function CampaignInsights({ id }: { id: string }) {
   const [state, setState] = useState<FetchState>({ status: "loading" });
@@ -127,12 +156,24 @@ export function CampaignInsights({ id }: { id: string }) {
 }
 
 function Loaded({ data }: { data: CampaignInsightsData }) {
+  // Particles are derived from the live per-status counts the poll already
+  // returns — no per-row fetch. O(n) and recomputed only on each 3s poll.
+  const particles = buildParticles(data.statusCounts);
   return (
     <>
       <header className="flex flex-col gap-3">
         <h1 className="font-display text-2xl tracking-tight">{data.name}</h1>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
-          <Badge variant="outline">{data.channel}</Badge>
+          {data.channelStrategy === "AI_ROUTED" ? (
+            <Badge
+              variant="outline"
+              className="border-[#a78bfa]/40 bg-[#a78bfa]/10 text-[#a78bfa]"
+            >
+              ✦ AI-routed
+            </Badge>
+          ) : (
+            <Badge variant="outline">{data.channel}</Badge>
+          )}
           <span>{data.segmentName}</span>
           <span aria-hidden>·</span>
           <span className="tabular-nums">{formatNumber(data.audienceSize)} recipients</span>
@@ -140,6 +181,11 @@ function Loaded({ data }: { data: CampaignInsightsData }) {
           <Badge variant={statusBadgeVariant(data.status)}>
             {statusLabel(data.status, data.channel)}
           </Badge>
+          {data.sendStrategy === "SMART_WINDOWS" ? (
+            <span className="flex items-center gap-1 text-[#a78bfa]" title="Smart Windows enabled">
+              <Clock className="size-3.5" /> Smart Windows
+            </span>
+          ) : null}
           {data.objective ? (
             <>
               <span aria-hidden>·</span>
@@ -149,14 +195,32 @@ function Loaded({ data }: { data: CampaignInsightsData }) {
         </div>
       </header>
 
+      <div className="overflow-hidden rounded-xl border border-white/5 shadow-2xl">
+        <DeliveryUniverse
+          particles={particles}
+          campaignName={data.name}
+          campaignStatus={data.status as "DRAFT" | "SENDING" | "COMPLETED" | "FAILED"}
+        />
+      </div>
+
       <StatStrip data={data} />
+
+      {data.channelStrategy === "AI_ROUTED" && data.routingSummary ? (
+        <ChannelRoutingCard summary={data.routingSummary} />
+      ) : null}
 
       <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
         <FunnelCard data={data} />
         <FailureCard data={data} />
       </div>
 
-      <CampaignSummary campaignId={data.id} />
+      {data.sendStrategy === "SMART_WINDOWS" ? <SendTimeSection campaignId={data.id} /> : null}
+
+      <CampaignSummary
+        campaignId={data.id}
+        funnelKey={funnelSignature(data)}
+        isTerminal={data.status === "COMPLETED" || data.status === "FAILED"}
+      />
 
       <Card>
         <CardHeader>
@@ -176,8 +240,8 @@ function StatStrip({ data }: { data: CampaignInsightsData }) {
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
       <Stat label="Audience" value={formatNumber(data.audienceSize)} />
       <Stat label="Delivered %" value={formatPct(data.deliveredPct)} />
-      <Stat label={readLabel} value={formatPct(data.readPct)} />
-      <Stat label="Clicked %" value={formatPct(data.clickedPct)} accent />
+      <Stat label={readLabel} value={formatPct(data.readPct)} valueColor={STATUS_HEX.READ} />
+      <Stat label="Clicked %" value={formatPct(data.clickedPct)} valueColor={STATUS_HEX.CLICKED} />
       <Stat
         label="Attributed revenue"
         value={formatRupees(data.attributedRevenue)}
@@ -191,21 +255,20 @@ function Stat({
   label,
   value,
   sub,
-  accent,
+  valueColor,
 }: {
   label: string;
   value: string;
   sub?: string;
-  accent?: boolean;
+  /** Hex colour for the value — matches the factor's colour in the galaxy/funnel. */
+  valueColor?: string;
 }) {
   return (
     <div className="rounded-lg border border-border/60 px-4 py-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p
-        className={cn(
-          "mt-1 text-2xl font-medium tabular-nums",
-          accent ? "text-copper" : "text-foreground",
-        )}
+        className={cn("mt-1 text-2xl font-medium tabular-nums", !valueColor && "text-foreground")}
+        style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
       </p>
@@ -214,14 +277,69 @@ function Stat({
   );
 }
 
+const ROUTING_CHANNELS: Array<{
+  key: "whatsapp" | "rcs" | "email" | "sms";
+  channel: keyof typeof CHANNEL_HEX;
+  label: string;
+}> = [
+  { key: "whatsapp", channel: "WHATSAPP", label: "WhatsApp" },
+  { key: "rcs", channel: "RCS", label: "RCS" },
+  { key: "email", channel: "EMAIL", label: "Email" },
+  { key: "sms", channel: "SMS", label: "SMS" },
+];
+
+function ChannelRoutingCard({ summary }: { summary: RoutingSummary }) {
+  const total = summary.whatsapp + summary.sms + summary.email + summary.rcs || 1;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <span className="text-[#a78bfa]">✦</span> Channel routing
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+          {ROUTING_CHANNELS.map(({ key, channel }) => {
+            const pctOf = (summary[key] / total) * 100;
+            return pctOf > 0 ? (
+              <div
+                key={channel}
+                style={{ width: `${pctOf}%`, backgroundColor: CHANNEL_HEX[channel] }}
+                title={`${channel}: ${summary[key]}`}
+              />
+            ) : null;
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          {ROUTING_CHANNELS.filter(({ key }) => summary[key] > 0).map(({ key, channel, label }) => (
+            <span
+              key={channel}
+              className="flex items-center gap-1.5 tabular-nums text-muted-foreground"
+            >
+              <span className="size-2 rounded-full" style={{ backgroundColor: CHANNEL_HEX[channel] }} />
+              <span className="text-foreground">{formatNumber(summary[key])}</span> {label} ·{" "}
+              {Math.round((summary[key] / total) * 100)}%
+            </span>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Chosen per customer by {summary.model || "the AI router"}.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function FunnelCard({ data }: { data: CampaignInsightsData }) {
   const { funnel, channel } = data;
   const readStageLabel = channel === "EMAIL" ? "Opened" : "Read";
-  const stages: { label: string; count: number }[] = [
-    { label: "Sent", count: funnel.sent },
-    { label: "Delivered", count: funnel.delivered },
-    { label: readStageLabel, count: funnel.read },
-    { label: "Clicked", count: funnel.clicked },
+  const stages: { label: string; count: number; color: string }[] = [
+    { label: "Sent", count: funnel.sent, color: STATUS_HEX.SENT },
+    // "Delivered" (the cumulative milestone) is the neutral default white; the
+    // green is reserved for "Delivered, not read" (status DELIVERED in the galaxy).
+    { label: "Delivered", count: funnel.delivered, color: DELIVERED_WHITE },
+    { label: readStageLabel, count: funnel.read, color: STATUS_HEX.READ },
+    { label: "Clicked", count: funnel.clicked, color: STATUS_HEX.CLICKED },
   ];
   const denom = funnel.audience > 0 ? funnel.audience : 1;
 
@@ -243,8 +361,8 @@ function FunnelCard({ data }: { data: CampaignInsightsData }) {
               </div>
               <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
-                  style={{ width: `${Math.min(100, pctOfAudience)}%` }}
+                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${Math.min(100, pctOfAudience)}%`, backgroundColor: stage.color }}
                 />
               </div>
             </div>

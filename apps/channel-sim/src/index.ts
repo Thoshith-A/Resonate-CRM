@@ -108,9 +108,19 @@ app.post("/v1/messages", (req: Request, res: Response) => {
       clientRef: message.clientRef,
       customerId: message.customerId,
       campaignId: message.campaignId,
+      peakWindow: message.peakWindow ?? false,
     };
     putMessage(vendorMessageId, record);
-    scheduleLifecycle(vendorMessageId, record);
+    // Send-Time Intelligence: honor scheduledFor by delaying the lifecycle until
+    // then (already-due / INSTANT messages start immediately).
+    const startDelayMs = message.scheduledFor
+      ? Math.max(0, new Date(message.scheduledFor).getTime() - Date.now())
+      : 0;
+    if (startDelayMs > 0) {
+      setTimeout(() => scheduleLifecycle(vendorMessageId, record), startDelayMs);
+    } else {
+      scheduleLifecycle(vendorMessageId, record);
+    }
     return { clientRef: message.clientRef, vendorMessageId, status: "accepted" };
   });
 

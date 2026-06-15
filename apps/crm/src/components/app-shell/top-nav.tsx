@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Wordmark } from "@/components/landing/wordmark";
-import { CopilotPanel } from "@/components/copilot/copilot-panel";
 import { ResetDemoButton } from "@/components/app-shell/reset-demo-button";
+import PageTranslator from "@/components/translate/PageTranslator";
+import XenoGuide from "@/components/guide/XenoGuide";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -45,7 +46,8 @@ export function TopNav() {
           </nav>
         </div>
         <div className="flex items-center gap-1">
-          <CopilotPanel />
+          <PageTranslator />
+          <XenoGuide />
           <ResetDemoButton />
         </div>
       </div>

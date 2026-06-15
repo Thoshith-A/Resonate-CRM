@@ -177,6 +177,20 @@
   }
 }
 
+/* ── Page Translator: hide the Google Translate widget chrome ──────────────
+   We drive translation via the googtrans cookie (see lib/googleTranslate.ts),
+   not the injected toolbar, so suppress the banner/gadget it adds. */
+.goog-te-banner-frame,
+.skiptranslate {
+  display: none !important;
+}
+.goog-te-gadget {
+  display: none !important;
+}
+body {
+  top: 0 !important;
+}
+
 /* ── Landing: "Begin" entry pulse ── */
 @keyframes enter-pulse {
   0%,

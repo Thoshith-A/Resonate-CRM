@@ -2,6 +2,22 @@
 
 A running log, one entry per consequential decision. The headline tradeoffs are summarized at the end under **At scale (consolidated)**.
 
+## Send-Time Intelligence (post-SPEC feature)
+
+### Peak-window inference is deterministic, not AI
+`inferSendWindow` buckets a customer's past order hours (IST) into morning/afternoon/evening/night; a window wins (HIGH confidence) only with ≥40% share and ≥3 orders, else we default to MORNING (LOW). Pure + unit-tested — no model call for a signal that's just arithmetic, and the MORNING default is what "no optimization" would have done (so it's the analytics baseline).
+
+### Staggered dispatch is a compressed setTimeout for the demo — a durable queue at scale
+`scheduleWindowedDispatch()` dispatches MORNING immediately and the later windows on `setTimeout` timers. Real `delayMinutes` are 0/60/120/180; for the demo they're **compressed to seconds** (`WINDOW_DEMO_MS_PER_MINUTE`) so all four waves land in ~3 minutes on screen. **This is explicitly `@deprecated-at-scale`**: in a serverless deployment a function can't hold a multi-minute timer (it returns at `maxDuration`), and even long-running, an in-process timer is lost on restart. At production volume this becomes a **durable queue (BullMQ / Inngest)**: the send enqueues per-window jobs and a worker drains them at the scheduled time. The campaign returns `SENDING` and settles to `COMPLETED` when the last window dispatches.
+
+### The lift is real because the sim boosts in-window read rates
+The analytics compare each window's read rate to the MORNING baseline. For that lift to exist, the channel-sim applies a read-rate multiplier (`PEAK_WINDOW_READ_BOOST`) to messages flagged `peakWindow` (sent in the customer's HIGH-confidence window). So optimized windows genuinely out-read the diluted MORNING bucket — the +Xpp lift on the detail page is computed from real per-window `groupBy` counts (`getWindowStats`), not hardcoded. Honest framing: the *magnitude* is a simulator parameter, but the measurement pipeline (group → read/delivered → weighted lift vs baseline) is exactly what a real one would run.
+
+## AI Channel Router (post-SPEC feature)
+
+### Per-customer channel via batched AI, with a hard zero-hallucination guarantee
+`routeChannels` batches the audience (25/batch, concurrency 3) and makes one `generateObject` call per batch — never one call per customer. Tool/AI inputs carry only routing signals (city tier, order count, spend, tags), never PII. A failed batch degrades to WHATSAPP ("routing_fallback"). The campaign's display channel becomes the plurality winner; the distribution is stored in `variantMeta.routingSummary`. At scale this is a precomputed channel-affinity score per customer (refreshed off the order stream), not a synchronous per-send AI pass.
+
 ## Phase 8 — Copilot (optional)
 
 ### The copilot is a second consumer of the SAME domain layer

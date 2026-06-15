@@ -8,6 +8,8 @@ export type CreateCampaignInput = {
   objective?: string;
   segmentId: string;
   channel: Channel;
+  channelStrategy?: "SINGLE" | "AI_ROUTED";
+  sendStrategy?: "INSTANT" | "SMART_WINDOWS";
   messageTemplate: string;
   variantMeta?: unknown;
 };
@@ -25,6 +27,8 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
       objective: input.objective ?? null,
       segmentId: input.segmentId,
       channel: input.channel,
+      channelStrategy: input.channelStrategy ?? "SINGLE",
+      sendStrategy: input.sendStrategy ?? "INSTANT",
       messageTemplate: input.messageTemplate,
       variantMeta: (input.variantMeta ?? undefined) as Prisma.InputJsonValue | undefined,
       status: "DRAFT",

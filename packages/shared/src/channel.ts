@@ -20,6 +20,11 @@ export const SendMessageItemSchema = z.object({
   /** Phone (WhatsApp/SMS/RCS) or email (EMAIL). */
   to: z.string().min(1),
   renderedMessage: z.string().min(1),
+  /** Send-Time Intelligence: ISO time the sim should delay the lifecycle until. */
+  scheduledFor: z.string().datetime().optional(),
+  /** True when this message lands in the customer's inferred peak window — the
+   * sim boosts its read rate, producing the measurable open-rate lift. */
+  peakWindow: z.boolean().optional(),
 });
 export type SendMessageItem = z.infer<typeof SendMessageItemSchema>;
 

@@ -11,6 +11,8 @@ export type DashboardCampaign = {
   id: string;
   name: string;
   channel: string;
+  channelStrategy: "SINGLE" | "AI_ROUTED";
+  sendStrategy: "INSTANT" | "SMART_WINDOWS";
   status: string;
   audienceSize: number;
   deliveredPct: number;
@@ -92,6 +94,8 @@ export async function getDashboard(): Promise<Dashboard> {
       id: campaign.id,
       name: campaign.name,
       channel: campaign.channel,
+      channelStrategy: campaign.channelStrategy,
+      sendStrategy: campaign.sendStrategy,
       status: campaign.status,
       audienceSize: campaign.audienceSize,
       deliveredPct: pct(delivered, campaign.audienceSize),

@@ -26,6 +26,16 @@ enum CampaignStatus {
   FAILED
 }
 
+enum ChannelStrategy {
+  SINGLE
+  AI_ROUTED
+}
+
+enum SendStrategy {
+  INSTANT
+  SMART_WINDOWS
+}
+
 enum MessageStatus {
   QUEUED
   SENT
@@ -87,6 +97,10 @@ model Segment {
   rules            Json
   createdByAi      Boolean  @default(false)
   lastPreviewCount Int?
+  /// Cached AI Channel Router preview (RoutePreviewResponse) so the campaign
+  /// builder shows the routing distribution instantly instead of re-running the
+  /// router's LLM calls on every visit. Recomputed on demand.
+  routePreview     Json?
   createdAt        DateTime @default(now())
 
   campaigns Campaign[]
@@ -99,6 +113,12 @@ model Campaign {
   segmentId String
   segment   Segment @relation(fields: [segmentId], references: [id])
   channel   Channel
+  /// SINGLE = one channel for all; AI_ROUTED = per-customer channel chosen by the AI router.
+  channelStrategy ChannelStrategy @default(SINGLE)
+  /// INSTANT = dispatch all now; SMART_WINDOWS = stagger per customer's peak window.
+  sendStrategy    SendStrategy    @default(INSTANT)
+  /// Base dispatch time for SMART_WINDOWS (null for INSTANT).
+  scheduledSendAt DateTime?
   /// Template with placeholders; per-recipient rendering lands in CommunicationLog.renderedMessage.
   messageTemplate String
   variantMeta     Json?
@@ -117,6 +137,14 @@ model CommunicationLog {
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id])
   channel    Channel
+  /// Why the AI router chose this channel (AI_ROUTED campaigns only); null otherwise.
+  routingReason   String?
+  /// Send-Time Intelligence (SMART_WINDOWS only): inferred window + confidence,
+  /// the scheduled dispatch time, and when the sim actually accepted it.
+  sendWindow       String?
+  windowConfidence String?
+  scheduledFor     DateTime?
+  actualSentAt     DateTime?
   /// Final per-recipient message after template personalization.
   renderedMessage String
   /// Vendor-side id; unique so receipt webhooks can resolve exactly one log row.

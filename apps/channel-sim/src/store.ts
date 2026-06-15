@@ -13,6 +13,9 @@ export interface MessageRecord {
   /** Retained for the Phase 6 conversion loop (clicked → order). */
   readonly customerId: string;
   readonly campaignId: string;
+  /** Send-Time Intelligence: this message landed in the customer's peak window
+   * → the funnel applies a boosted read rate. */
+  readonly peakWindow: boolean;
 }
 
 const messages = new Map<string, MessageRecord>();

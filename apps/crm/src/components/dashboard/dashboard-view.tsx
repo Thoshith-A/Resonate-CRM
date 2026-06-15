@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -158,7 +159,14 @@ function CampaignTable({
                   onClick={() => onRowClick(campaign.id)}
                 >
                   <TableCell className="font-medium">{campaign.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{campaign.channel}</TableCell>
+                  <TableCell>
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">{campaign.channel}</span>
+                      {campaign.sendStrategy === "SMART_WINDOWS" ? (
+                        <Clock className="size-3.5 text-[#a78bfa]" aria-label="Smart Windows enabled" />
+                      ) : null}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNumber(campaign.audienceSize)}
                   </TableCell>

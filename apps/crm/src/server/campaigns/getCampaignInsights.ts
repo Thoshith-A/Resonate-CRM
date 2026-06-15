@@ -16,6 +16,14 @@ export type CampaignFunnel = {
 
 export type FailureBucket = { reason: string; count: number };
 
+export type RoutingSummary = {
+  whatsapp: number;
+  sms: number;
+  email: number;
+  rcs: number;
+  model: string;
+};
+
 export type CampaignInsights = {
   id: string;
   name: string;
@@ -23,6 +31,9 @@ export type CampaignInsights = {
   segmentId: string;
   segmentName: string;
   channel: string;
+  channelStrategy: "SINGLE" | "AI_ROUTED";
+  routingSummary: RoutingSummary | null;
+  sendStrategy: "INSTANT" | "SMART_WINDOWS";
   messageTemplate: string;
   status: string;
   audienceSize: number;
@@ -49,6 +60,29 @@ const ZERO_COUNTS: CampaignStatusCounts = {
 
 const pct = (numerator: number, denominator: number): number =>
   denominator === 0 ? 0 : Math.round((numerator / denominator) * 1000) / 10;
+
+/** Pull the AI router's distribution out of campaign.variantMeta, if present. */
+function parseRoutingSummary(variantMeta: unknown): RoutingSummary | null {
+  if (!variantMeta || typeof variantMeta !== "object" || Array.isArray(variantMeta)) return null;
+  const rs = (variantMeta as Record<string, unknown>).routingSummary;
+  if (!rs || typeof rs !== "object") return null;
+  const r = rs as Record<string, unknown>;
+  if (
+    typeof r.whatsapp !== "number" ||
+    typeof r.sms !== "number" ||
+    typeof r.email !== "number" ||
+    typeof r.rcs !== "number"
+  ) {
+    return null;
+  }
+  return {
+    whatsapp: r.whatsapp,
+    sms: r.sms,
+    email: r.email,
+    rcs: r.rcs,
+    model: typeof r.model === "string" ? r.model : "",
+  };
+}
 
 /**
  * Full insights for one campaign: cumulative funnel, failure breakdown,
@@ -107,6 +141,9 @@ export async function getCampaignInsights(id: string): Promise<CampaignInsights>
     segmentId: campaign.segmentId,
     segmentName: campaign.segment.name,
     channel: campaign.channel,
+    channelStrategy: campaign.channelStrategy,
+    routingSummary: parseRoutingSummary(campaign.variantMeta),
+    sendStrategy: campaign.sendStrategy,
     messageTemplate: campaign.messageTemplate,
     status: campaign.status,
     audienceSize: campaign.audienceSize,

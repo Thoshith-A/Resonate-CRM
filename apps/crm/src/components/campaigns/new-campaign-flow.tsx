@@ -1,27 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Send, Sparkles } from "lucide-react";
-import type { Channel } from "@resonate/shared";
+import type { Channel, RoutePreviewResponse } from "@resonate/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ObjectivePicker } from "@/components/campaigns/objective-picker";
+import {
+  ChannelSelector,
+  RoutePreviewCard,
+  routedSummaryText,
+  type ChannelStrategy,
+  type RoutePreviewState,
+} from "@/components/campaigns/ChannelSelector";
+import { SendTimeSelector, type SendStrategy } from "@/components/campaigns/SendTimeSelector";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
+import { scoreMessage } from "@/lib/message-score";
 import { describeRules } from "@/lib/segment-describe";
 import type { SegmentListItem } from "@/server/segments/listSegments";
 
@@ -37,7 +40,6 @@ type RenderPreviewResponse = {
 // POST /api/campaigns → full Campaign row; we only rely on its id.
 type CreatedCampaign = { id: string };
 
-const CHANNELS: Channel[] = ["WHATSAPP", "SMS", "EMAIL", "RCS"];
 const CHANNEL_LABELS: Record<Channel, string> = {
   WHATSAPP: "WhatsApp",
   SMS: "SMS",
@@ -79,6 +81,9 @@ export function NewCampaignFlow({ initialSegmentId }: { initialSegmentId: string
 
   // Step 2 — Message
   const [channel, setChannel] = useState<Channel>("WHATSAPP");
+  const [channelStrategy, setChannelStrategy] = useState<ChannelStrategy>("SINGLE");
+  const [routePreview, setRoutePreview] = useState<RoutePreviewState>({ status: "idle" });
+  const [sendStrategy, setSendStrategy] = useState<SendStrategy>("INSTANT");
   const [objective, setObjective] = useState("");
   const [brandVoice, setBrandVoice] = useState("warm, premium, concise");
   const [drafting, setDrafting] = useState(false);
@@ -186,6 +191,70 @@ export function NewCampaignFlow({ initialSegmentId }: { initialSegmentId: string
     };
   }, [selectedSegmentId, messageTemplate]);
 
+  // AI Channel Router preview. Preloaded as soon as a segment is chosen (not
+  // gated on the AI strategy) and served from the segment's cached preview, so
+  // the card renders instantly when the marketer picks "Let Resonate decide".
+  // The card itself is only shown for AI_ROUTED (see MessageStep).
+  useEffect(() => {
+    if (!selectedSegmentId) {
+      setRoutePreview({ status: "idle" });
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    setRoutePreview({ status: "loading" });
+    fetch("/api/ai/route-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segmentId: selectedSegmentId }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Routing preview failed (${res.status})`);
+        }
+        return (await res.json()) as RoutePreviewResponse;
+      })
+      .then((data) => {
+        if (!cancelled) setRoutePreview({ status: "loaded", data });
+      })
+      .catch((error: unknown) => {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+        setRoutePreview({
+          status: "error",
+          message: error instanceof Error ? error.message : "Routing preview failed.",
+        });
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [selectedSegmentId]);
+
+  // Recompute the routing preview (bypasses the cache, overwrites it).
+  const recomputeRoutePreview = useCallback(() => {
+    if (!selectedSegmentId) return;
+    setRoutePreview({ status: "loading" });
+    fetch("/api/ai/route-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segmentId: selectedSegmentId, refresh: true }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Routing preview failed (${res.status})`);
+        return (await res.json()) as RoutePreviewResponse;
+      })
+      .then((data) => setRoutePreview({ status: "loaded", data }))
+      .catch((error: unknown) =>
+        setRoutePreview({
+          status: "error",
+          message: error instanceof Error ? error.message : "Routing preview failed.",
+        }),
+      );
+  }, [selectedSegmentId]);
+
   const handleDraft = async () => {
     if (!selectedSegment || drafting) {
       return;
@@ -236,6 +305,8 @@ export function NewCampaignFlow({ initialSegmentId }: { initialSegmentId: string
           objective: objective.trim() || undefined,
           segmentId: selectedSegment.id,
           channel,
+          channelStrategy,
+          sendStrategy,
           messageTemplate,
           variantMeta: variants.length
             ? { variants, brandVoice, objective }
@@ -276,6 +347,12 @@ export function NewCampaignFlow({ initialSegmentId }: { initialSegmentId: string
         <MessageStep
           channel={channel}
           onChannelChange={setChannel}
+          channelStrategy={channelStrategy}
+          onChannelStrategyChange={setChannelStrategy}
+          routePreview={routePreview}
+          onRecomputeRoutePreview={recomputeRoutePreview}
+          sendStrategy={sendStrategy}
+          onSendStrategyChange={setSendStrategy}
           objective={objective}
           onObjectiveChange={setObjective}
           brandVoice={brandVoice}
@@ -304,6 +381,9 @@ export function NewCampaignFlow({ initialSegmentId }: { initialSegmentId: string
         <ReviewStep
           segment={selectedSegment}
           channel={channel}
+          channelStrategy={channelStrategy}
+          routePreview={routePreview}
+          sendStrategy={sendStrategy}
           name={effectiveName}
           objective={objective}
           messageTemplate={messageTemplate}
@@ -422,14 +502,7 @@ function AudienceStep({
                   )}
                 >
                   <CardHeader>
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-base">{segment.name}</CardTitle>
-                      {segment.createdByAi && (
-                        <Badge variant="secondary" className="gap-1">
-                          <Sparkles className="size-3" /> AI
-                        </Badge>
-                      )}
-                    </div>
+                    <CardTitle className="text-base">{segment.name}</CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-3">
                     <p className="line-clamp-2 text-sm text-muted-foreground">
@@ -464,6 +537,12 @@ function AudienceStep({
 function MessageStep({
   channel,
   onChannelChange,
+  channelStrategy,
+  onChannelStrategyChange,
+  routePreview,
+  onRecomputeRoutePreview,
+  sendStrategy,
+  onSendStrategyChange,
   objective,
   onObjectiveChange,
   brandVoice,
@@ -485,6 +564,12 @@ function MessageStep({
 }: {
   channel: Channel;
   onChannelChange: (channel: Channel) => void;
+  channelStrategy: ChannelStrategy;
+  onChannelStrategyChange: (strategy: ChannelStrategy) => void;
+  routePreview: RoutePreviewState;
+  onRecomputeRoutePreview: () => void;
+  sendStrategy: SendStrategy;
+  onSendStrategyChange: (strategy: SendStrategy) => void;
   objective: string;
   onObjectiveChange: (value: string) => void;
   brandVoice: string;
@@ -507,6 +592,23 @@ function MessageStep({
   const charCount = messageTemplate.length;
   const overLimit = channel === "SMS" && charCount > SMS_LIMIT;
 
+  // Predicted-engagement score per variant; the single highest is flagged "Best".
+  const scored = useMemo(() => {
+    const list = variants.map((variant) => ({
+      variant,
+      ...scoreMessage(variant.text, channel),
+    }));
+    let bestIndex = -1;
+    let bestScore = -1;
+    list.forEach((item, index) => {
+      if (item.score > bestScore) {
+        bestScore = item.score;
+        bestIndex = index;
+      }
+    });
+    return { list, bestIndex };
+  }, [variants, channel]);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
@@ -516,23 +618,25 @@ function MessageStep({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="channel">Channel</Label>
-          <Select value={channel} onValueChange={(value) => onChannelChange(value as Channel)}>
-            <SelectTrigger id="channel" aria-label="Channel" className="h-8 w-full">
-              {CHANNEL_LABELS[channel]}
-            </SelectTrigger>
-            <SelectContent>
-              {CHANNELS.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {CHANNEL_LABELS[c]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="flex flex-col gap-2">
+        <Label>Channel</Label>
+        <ChannelSelector
+          channel={channel}
+          strategy={channelStrategy}
+          onChannelChange={onChannelChange}
+          onStrategyChange={onChannelStrategyChange}
+        />
+        {channelStrategy === "AI_ROUTED" && (
+          <RoutePreviewCard state={routePreview} onRecompute={onRecomputeRoutePreview} />
+        )}
+      </div>
 
+      <div className="flex flex-col gap-2">
+        <Label>When should we send?</Label>
+        <SendTimeSelector strategy={sendStrategy} onStrategyChange={onSendStrategyChange} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label htmlFor="objective">Objective</Label>
           <ObjectivePicker
@@ -566,11 +670,14 @@ function MessageStep({
       <div className="flex flex-col gap-3 rounded-lg border border-copper/30 bg-copper/5 p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-medium text-copper">
-            <Sparkles className="size-4" /> Let AI draft three options
+            <Sparkles className="size-4" /> Let Resonate draft three options
+            <span className="rounded-full bg-copper px-1.5 py-0.5 text-[10px] font-medium text-background">
+              Recommended
+            </span>
           </div>
           <Button size="sm" onClick={onDraft} disabled={drafting}>
             <Sparkles className="size-3.5" />
-            {drafting ? "Drafting…" : "Draft 3 with AI"}
+            {drafting ? "Drafting…" : "Draft with Resonate"}
           </Button>
         </div>
 
@@ -582,29 +689,77 @@ function MessageStep({
         )}
 
         {variants.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {variants.map((variant) => {
-              const selected = variant.label === selectedVariant;
-              return (
-                <button
-                  key={variant.label}
-                  type="button"
-                  onClick={() => onSelectVariant(variant)}
-                  aria-pressed={selected}
-                  className={cn(
-                    "flex flex-col gap-2 rounded-lg border bg-background p-3 text-left text-sm outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
-                    selected ? "border-primary ring-2 ring-primary" : "border-border/60 hover:border-foreground/30",
-                  )}
-                >
-                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {variant.label}
-                  </span>
-                  <span className="line-clamp-4 whitespace-pre-wrap text-foreground">
-                    {variant.text}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="flex flex-col gap-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {scored.list.map((item, index) => {
+                const { variant, score, tier } = item;
+                const selected = variant.label === selectedVariant;
+                const isBest = index === scored.bestIndex;
+                return (
+                  <button
+                    key={variant.label}
+                    type="button"
+                    onClick={() => onSelectVariant(variant)}
+                    aria-pressed={selected}
+                    className={cn(
+                      "flex flex-col gap-2 rounded-lg border bg-background p-3 text-left text-sm outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
+                      selected
+                        ? "border-primary ring-2 ring-primary"
+                        : isBest
+                          ? "border-copper/50 hover:border-copper"
+                          : "border-border/60 hover:border-foreground/30",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {variant.label}
+                      </span>
+                      {isBest && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-copper/40 bg-copper/15 text-copper"
+                        >
+                          <Sparkles className="size-3" /> Best
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="line-clamp-4 whitespace-pre-wrap text-foreground">
+                      {variant.text}
+                    </span>
+                    <div className="mt-auto flex flex-col gap-1 pt-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground">
+                          Predicted engagement
+                        </span>
+                        <span className="font-medium tabular-nums text-foreground">
+                          {score}% · {tier}
+                        </span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        aria-valuenow={score}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`Predicted engagement ${score} percent`}
+                        className="h-1.5 w-full overflow-hidden rounded-full bg-border/60"
+                      >
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            isBest ? "bg-copper" : "bg-foreground/35",
+                          )}
+                          style={{ width: `${score}%` }}
+                        />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Predicted engagement weighs personalization, length fit for{" "}
+              {CHANNEL_LABELS[channel]}, a clear call-to-action, and urgency.
+            </p>
           </div>
         )}
       </div>
@@ -663,6 +818,9 @@ function MessageStep({
 function ReviewStep({
   segment,
   channel,
+  channelStrategy,
+  routePreview,
+  sendStrategy,
   name,
   objective,
   messageTemplate,
@@ -674,6 +832,9 @@ function ReviewStep({
 }: {
   segment: SegmentListItem;
   channel: Channel;
+  channelStrategy: ChannelStrategy;
+  routePreview: RoutePreviewState;
+  sendStrategy: SendStrategy;
   name: string;
   objective: string;
   messageTemplate: string;
@@ -683,6 +844,10 @@ function ReviewStep({
   onBack: () => void;
   onSend: () => void;
 }) {
+  const routedSummary =
+    channelStrategy === "AI_ROUTED" && routePreview.status === "loaded"
+      ? routedSummaryText(routePreview.data.distribution)
+      : null;
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
@@ -698,7 +863,13 @@ function ReviewStep({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
-            <Badge variant="outline">{channel}</Badge>
+            {channelStrategy === "AI_ROUTED" ? (
+              <Badge variant="outline" className="border-[#a78bfa]/40 bg-[#a78bfa]/10 text-[#a78bfa]">
+                {routedSummary ?? "✦ AI-routed"}
+              </Badge>
+            ) : (
+              <Badge variant="outline">{channel}</Badge>
+            )}
             <span>{segment.name}</span>
             <span aria-hidden>·</span>
             <span className="tabular-nums">
@@ -751,6 +922,18 @@ function ReviewStep({
           {sending ? "Sending…" : "Create & send"}
         </Button>
       </div>
+
+      {sendStrategy === "SMART_WINDOWS" && (
+        <div className="flex flex-col gap-0.5 text-right">
+          <p className="text-sm text-[#a78bfa]">
+            ✦ Messages dispatch in waves by each customer&apos;s peak window
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Morning sends immediately · afternoon, evening &amp; night follow over the next few
+            minutes (demo-compressed from real hours).
+          </p>
+        </div>
+      )}
     </div>
   );
 }

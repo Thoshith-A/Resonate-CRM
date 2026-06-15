@@ -17,8 +17,10 @@ import { logger } from "./logger";
  * never blocks the next tick, loses events, or double-sends a batch.
  */
 
-const FLUSH_INTERVAL_MS = 3000;
-const MAX_BATCH_SIZE = 50;
+// Tuned for a fast (<20s) demo: receipts flush every 1s in large batches so the
+// live feed keeps up with SIM_SPEED. The out-of-order shuffle is still applied.
+const FLUSH_INTERVAL_MS = 1000;
+const MAX_BATCH_SIZE = 500;
 const RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 8000] as const;
 const RECEIPTS_PATH = "/api/webhooks/receipts";
 
