@@ -59,7 +59,7 @@ async function postBatch(body: string, signature: string): Promise<boolean> {
       },
       body,
     });
-    return res.ok;
+    return res.status >= 200 && res.status < 300;
   } catch {
     return false;
   }

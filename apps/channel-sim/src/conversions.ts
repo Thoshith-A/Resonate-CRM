@@ -79,7 +79,7 @@ async function postOrder(body: string): Promise<boolean> {
       headers: { "content-type": "application/json" },
       body,
     });
-    return res.ok;
+    return res.status >= 200 && res.status < 300;
   } catch {
     return false;
   }
